@@ -218,7 +218,7 @@
     lightZeroSeconds: 0.55,  // at power 0 — hard, never blind. Wider gap from
     // full than before: low power is meant to be FELT, not just read off a bar.
     lightBeamSeconds: 2.60,
-    lightFloorMetres: 105,
+    lightFloorMetres: 150,   // raised: even at zero power there's real reaction room
     powerDrainPerSec: 1 / 38,
     powerPickup: 0.50,
     beamDuration: 8,
@@ -651,7 +651,12 @@
       // by nearest, so which post you rope is an expressed choice. This
       // flag is kept as an escape hatch for a future decorative-only post;
       // nothing currently sets it false.
-      attachable: opts.attachable === undefined ? true : opts.attachable
+      attachable: opts.attachable === undefined ? true : opts.attachable,
+      // True only for the safe-side post of a curve/combo bend, so the render
+      // layer can draw the "this one throws you hard" chevron board on those
+      // alone — not on every anchor with nonzero pull, which obstacle anchors
+      // also carry.
+      pivot: opts.pivot || false
     };
   };
 
@@ -1130,10 +1135,12 @@
      * own side, so roping the wrong pole on a breather is a real, punishing
      * option rather than an impossibility. */
     var anchors = [];
+    var isBend = (ev.kind === 'curve' || ev.kind === 'combo');
     if (!ev.breather) {
       anchors.push(NL.makeAnchor({
         z: anchorZ, side: ev.side, pickup: pickup, eventId: id, pull: ev.pull || 0,
-        openHazardZ: ev.openHazardZ, closeHazardZ: ev.closeHazardZ, hazardZ: ev.z
+        openHazardZ: ev.openHazardZ, closeHazardZ: ev.closeHazardZ, hazardZ: ev.z,
+        pivot: isBend
       }));
     }
     if (ev.kind === 'obstacle') {
@@ -1195,7 +1202,14 @@
 
   NL.generator = {
     step: function (world) {
-      var ahead = world.speed * 6 + 480;
+      // Only needs to reach a bit past the farthest anything ever draws
+      // (relMax + 220, capped well under 1000m even at the speed cap) — the
+      // old margin here (speed*6+480, over 2000m at the cap) was building
+      // and holding several times as many live anchors/obstacles/events as
+      // ever get drawn, and every per-frame loop over those arrays (render,
+      // collision, anchor-state) was paying for all of it. This is a perf
+      // fix only; the fairness floor (reactionSecondsAt et al) is untouched.
+      var ahead = world.speed * 3 + 350;
       var guard = 0;
       while (world.nextZ < world.dist + ahead && guard++ < 12) {
         var z = world.nextZ;
@@ -2367,12 +2381,13 @@
       var lo = c + o.lo, hi = c + o.hi;
       var y0 = sy(rel0), y1 = sy(rel1), s0 = sc(rel0);
       var h = o.height * view.roadHalfPx * s0;
-      // Linear falloff (litAmount itself is quadratic) so the silhouette starts
-      // reading a beat earlier than the quadratic curve gave it — the anchor
-      // was reliably the first thing you noticed, the obstacle itself a beat
-      // later; this narrows that gap without touching the anchor's own,
-      // deliberately distance-independent self-light.
-      var fade = NL.clamp(Math.sqrt(NL.light.litAmount(world, rel0)) * 1.15, 0, 1);
+      // Linear falloff (litAmount itself is quadratic), and pushed well past
+      // full linear brightness, so the silhouette is legible from most of
+      // the lit distance instead of only its closest third — the pick
+      // between posts needs the obstacle itself to already read, not just
+      // the posts either side of it. Still zero past the lit distance; only
+      // how fast it ramps up inside it changed.
+      var fade = NL.clamp(Math.sqrt(NL.light.litAmount(world, rel0)) * 1.8, 0, 1);
 
       var xl = sx(rel0, lo), xr = sx(rel0, hi);
 
@@ -2749,7 +2764,7 @@
       var c = NL.road.centreAt(world, a.z), s = sc(rel), y = sy(rel);
       var px = sx(rel, c + a.side * cfg.ropeSideOffset);
       if (px < -80 || px > view.W + 80) continue;
-      var pivot = a.pull > 0;
+      var pivot = a.pivot;
       var h = (pivot ? 0.80 : 0.62) * view.roadHalfPx * s;
       var w = Math.max(2, 0.035 * view.roadHalfPx * s);
 
