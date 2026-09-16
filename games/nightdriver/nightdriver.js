@@ -208,14 +208,15 @@
     // The opening turns are shallow enough to survive un-roped, so the verb can be
     // learned once before the road starts insisting on it.
     curveGraceSeconds: 18,
-    warmUpSeconds: 30,       // first-run forgiveness: hazards verified at a wider press error
+    warmUpSeconds: 18,       // first-run forgiveness: hazards verified at a wider press error
     warmUpPressError: 0.55,
     comboOutsideStart: 0.58, // a combo's exit wreck starts this far out on the outside
     curveGraceScale: 0.72,
 
     /* ---- light (GDD 7) ---- */
-    lightFullSeconds: 1.55,   // seconds of road visible at power 1
-    lightZeroSeconds: 0.80,  // at power 0 — hard, never blind
+    lightFullSeconds: 1.90,   // seconds of road visible at power 1
+    lightZeroSeconds: 0.55,  // at power 0 — hard, never blind. Wider gap from
+    // full than before: low power is meant to be FELT, not just read off a bar.
     lightBeamSeconds: 2.60,
     lightFloorMetres: 105,
     powerDrainPerSec: 1 / 38,
@@ -1042,8 +1043,12 @@
 
     var entries;
     if (warmUp) {
-      // the first few hazards are all the same shape: learn the verb, then turn
-      entries = t < 12 ? [['obs_C', 1]] : [['obs_C', 70], ['curve_slight', 30]];
+      // Learn the verb on dead-center hazards first, but only for a few
+      // seconds — side lanes and a first turn arrive early, not at the end
+      // of the whole warm-up window, so lane positioning is never something
+      // a short session misses entirely.
+      if (t < 6) entries = [['obs_C', 1]];
+      else entries = [['obs_C', 46], ['obs_L', 13], ['obs_R', 13], ['curve_slight', 28]];
     } else {
       // obstacles are ~60-65 % of picks; corners come in chained pairs more often
       // than alone, because a road that turns tends to turn back
@@ -1504,11 +1509,18 @@
         o.settled = true;
         world.cleared++;
         clearedOne(world);
-        if (o.minGap !== undefined && o.minGap < cfg.nearMissGap) {
-          world.nearMisses++;
-          world.nearMiss = 1;
-          world.nearMissSide = o.missSide || 1;
-          emit(world, 'near-miss');
+        if (o.minGap !== undefined) {
+          // The tighter the clearance, the more skill it took — rate it like a
+          // rhythm game (OK/GOOD/PERFECT) instead of leaving a clean dodge with
+          // no readout at all beyond the score ticking up.
+          var rating = o.minGap < cfg.nearMissGap ? 'perfect' : (o.minGap < 0.30 ? 'good' : 'ok');
+          emit(world, 'dodge-' + rating, { side: o.missSide || 1 });
+          if (rating === 'perfect') {
+            world.nearMisses++;
+            world.nearMiss = 1;
+            world.nearMissSide = o.missSide || 1;
+            emit(world, 'near-miss');
+          }
         }
         continue;
       }
@@ -2321,7 +2333,12 @@
       var lo = c + o.lo, hi = c + o.hi;
       var y0 = sy(rel0), y1 = sy(rel1), s0 = sc(rel0);
       var h = o.height * view.roadHalfPx * s0;
-      var fade = NL.clamp(NL.light.litAmount(world, rel0) * 1.6, 0, 1);
+      // Linear falloff (litAmount itself is quadratic) so the silhouette starts
+      // reading a beat earlier than the quadratic curve gave it — the anchor
+      // was reliably the first thing you noticed, the obstacle itself a beat
+      // later; this narrows that gap without touching the anchor's own,
+      // deliberately distance-independent self-light.
+      var fade = NL.clamp(Math.sqrt(NL.light.litAmount(world, rel0)) * 1.15, 0, 1);
 
       var xl = sx(rel0, lo), xr = sx(rel0, hi);
 
@@ -2930,14 +2947,24 @@
  *
  * Score, lives and the boot/home/game-over/leaderboard flow are the shell's
  * job now (shared/game-shell.js) — see 14-main. What is left here is the
- * stuff that is genuinely this game's own: the light/beam meters (GDD 7.1 —
- * the warning must read even at zero), the clean-clear chain, and the "you
- * just passed your own best" beat. Positioned bottom-centre, clear of the
- * shell's own top-centre score/lives readout and its bottom-corner controls.
+ * stuff that is genuinely this game's own: the speedometer, the light/beam
+ * meters (GDD 7.1 — the warning must read even at zero) each now labelled
+ * against what it actually does, the clean-clear chain, per-dodge OK/GOOD/
+ * PERFECT feedback, the "you just passed your own best" beat, and a one-time
+ * first-run reminder of the single control. Positioned bottom-centre, clear
+ * of the shell's own top-centre score/lives readout and its bottom-corner
+ * controls.
  */
 (function () {
   var NL = (globalThis.NL = globalThis.NL || {});
   var T = NL.tokens;
+
+  var dodge = null;   // { label, colour, age } — sim-driven, see onFx()
+  var DODGE_STYLE = {
+    ok:      { label: 'OK',      colour: T.hudMid },
+    good:    { label: 'GOOD',    colour: T.pickupPower },
+    perfect: { label: 'PERFECT', colour: T.anchorActive }
+  };
 
   function font(ctx, size, weight) {
     ctx.font = (weight || 500) + ' ' + size + 'px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
@@ -2960,7 +2987,19 @@
   }
 
   NL.hud = {
-    draw: function (ctx, world, view, tNow, best) {
+    // Clears transient HUD state between runs so a stale dodge-rating from
+    // the previous attempt can't flash up at the start of a new one.
+    reset: function () { dodge = null; },
+
+    // Called once per drained sim event (see 12-game's fx loop) — picks out
+    // the ones that need a floating readout rather than just a sound.
+    onFx: function (fx) {
+      if (fx.type.indexOf('dodge-') !== 0) return;
+      var style = DODGE_STYLE[fx.type.slice(6)];
+      if (style) dodge = { label: style.label, colour: style.colour, age: 0 };
+    },
+
+    draw: function (ctx, world, view, tNow, dt, best) {
       var pad = view.tall ? 14 : 20;
       var mw = view.tall ? 100 : 140, mh = 8, gap = 7;
       var mx = view.W / 2 - mw / 2, my = view.H - pad - mh * 2 - gap;
@@ -2970,7 +3009,13 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
 
-      // the chain: consecutive clean clears, right above the meters
+      // speed: the one number the death screen already gave you, now live —
+      // and the thing that makes the automatic ramp-up (GDD 6) actually visible
+      font(ctx, view.tall ? 13 : 15, 600);
+      ctx.fillStyle = T.hudMid;
+      ctx.fillText(Math.round(world.speed * 3.6) + ' KM/H', view.W / 2, my - 54);
+
+      // the chain: consecutive clean clears
       if (world.streak >= 3 || world.streakBroke > 0.01) {
         var sp = world.streakPulse, sb = world.streakBroke;
         var sSize = view.tall ? 13 : 15;
@@ -2990,7 +3035,8 @@
         ctx.globalAlpha = 1;
       }
 
-      // ---- light / beam meters, bottom-centre, stacked
+      // ---- light / beam meters, bottom-centre, stacked, each labelled at
+      // its own height so it is unambiguous which readout is which
       ctx.globalAlpha = low ? pulse : 0.92;
       meter(ctx, mx, my, mw, mh, world.power, low ? T.hudWarn : 'rgba(255,206,140,0.9)', low);
       ctx.globalAlpha = 0.92;
@@ -2998,11 +3044,33 @@
             world.beamActive ? T.pickupBeam : 'rgba(192,140,255,0.45)', world.beamActive);
       ctx.globalAlpha = 1;
 
+      ctx.textAlign = 'left';
       font(ctx, 9, 500);
       ctx.globalAlpha = low ? pulse : 1;
       ctx.fillStyle = low ? T.hudWarn : T.hudDim;
-      ctx.fillText(low ? 'LIGHT LOW' : 'LIGHT', view.W / 2, my - 14);
+      ctx.fillText(low ? 'LIGHT LOW' : 'LIGHT', mx + mw + 8, my - 1);
       ctx.globalAlpha = 1;
+      ctx.fillStyle = world.beamActive ? T.pickupBeam : T.hudDim;
+      ctx.fillText(world.beamActive ? 'HIGH BEAM ON' : 'HIGH BEAM', mx + mw + 8, my + mh + gap - 1);
+      ctx.textAlign = 'center';
+
+      // per-dodge OK / GOOD / PERFECT, floating just above the car
+      if (dodge) {
+        dodge.age += dt;
+        var life = 0.85;
+        if (dodge.age >= life) { dodge = null; }
+        else {
+          var t = dodge.age / life;
+          var rise = t * 22;
+          ctx.save();
+          ctx.globalAlpha = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+          font(ctx, view.tall ? 16 : 20, 700);
+          ctx.fillStyle = dodge.colour;
+          ctx.shadowColor = dodge.colour; ctx.shadowBlur = 10;
+          ctx.fillText(dodge.label, view.W / 2, view.H * 0.58 - rise);
+          ctx.restore();
+        }
+      }
 
       // the moment you pass your own best, mid-run
       if (world.beatBest > 0.01) {
@@ -3015,6 +3083,26 @@
         ctx.fillText('NEW BEST', view.W / 2, view.H * 0.24);
         ctx.restore();
       }
+
+      // first-ever run only: a few seconds of plain reminder of the one control
+      if (world._showIntro) {
+        var INTRO_HOLD = 5.4, INTRO_FADE = 0.8;
+        if (world.time > INTRO_HOLD + INTRO_FADE) world._showIntro = false;
+        else {
+          var ia = world.time < INTRO_FADE ? world.time / INTRO_FADE
+                 : world.time > INTRO_HOLD ? 1 - (world.time - INTRO_HOLD) / INTRO_FADE
+                 : 1;
+          ctx.save();
+          ctx.globalAlpha = ia;
+          font(ctx, view.tall ? 12 : 14, 600);
+          ctx.fillStyle = T.hudBright;
+          ctx.fillText('HOLD DRIFT TO ROPE THE LIT POST AHEAD', view.W / 2, view.H * 0.30);
+          ctx.fillStyle = T.hudDim;
+          ctx.fillText('RELEASE BEFORE YOU RUN OUT OF ROAD', view.W / 2, view.H * 0.30 + 20);
+          ctx.restore();
+        }
+      }
+
       ctx.textAlign = 'left';
     }
   };
@@ -3136,6 +3224,9 @@
         case 'pickup-power':NL.audio.blip(680, 0.16, 0.12, 'sine'); setTimeout(function(){NL.audio.blip(1020,0.18,0.10,'sine');},70); break;
         case 'pickup-beam': NL.audio.blip(880, 0.16, 0.12, 'triangle'); setTimeout(function(){NL.audio.blip(1320,0.22,0.10,'triangle');},70); break;
         case 'near-miss':   NL.audio.noise(0.10, 0.20, 2600, 2.0, 1200); break;
+        case 'dodge-ok':      NL.audio.blip(500, 0.05, 0.04, 'sine'); break;
+        case 'dodge-good':    NL.audio.blip(700, 0.07, 0.06, 'triangle'); break;
+        case 'dodge-perfect': NL.audio.blip(900, 0.06, 0.08, 'triangle'); setTimeout(function(){NL.audio.blip(1350,0.10,0.07,'triangle');},50); break;
         case 'streak-mark': NL.audio.blip(1180, 0.09, 0.07, 'sine'); setTimeout(function(){NL.audio.blip(1570,0.12,0.06,'sine');},60); break;
         case 'streak-break':NL.audio.blip(220, 0.16, 0.08, 'sawtooth'); break;
         case 'speed-up':    NL.audio.blip(440, 0.10, 0.07, 'square'); setTimeout(function(){NL.audio.blip(660,0.14,0.07,'square');},80); break;
@@ -3163,7 +3254,8 @@
 
   var world = null;
   var acc = 0;
-  var simTime = 0;   // drives animation phase; frozen whenever the shell isn't calling onUpdate (paused, off-run)
+  var simTime = 0;      // drives animation phase; frozen whenever the shell isn't calling onUpdate (paused, off-run)
+  var lastHudT = 0;     // for the HUD's own transient animations (dodge rating fade)
 
   NL.game = {
     get world() { return world; },
@@ -3183,6 +3275,15 @@
       world = NL.createWorld((Math.random() * 1e9) | 0);
       acc = 0;
       simTime = 0;
+      lastHudT = 0;
+      NL.hud.reset();
+      // First-ever run only: a brief on-canvas reminder of the one control,
+      // since the shared shell's help panel is opt-in (an icon tap away) and
+      // a first-time player never has to find it to get the how-to-play.
+      var introSeen = true;
+      try { introSeen = localStorage.getItem('nightline:introSeen') === '1'; } catch (e) {}
+      world._showIntro = !introSeen;
+      if (!introSeen) { try { localStorage.setItem('nightline:introSeen', '1'); } catch (e) {} }
     },
 
     update: function (dt, shell) {
@@ -3201,8 +3302,11 @@
         if (!world.alive) break;
       }
 
-      // drain sim events to audio
-      for (var i = 0; i < world.fx.length; i++) NL.audio.fx(world.fx[i].type);
+      // drain sim events to audio + the HUD's own floating dodge-rating text
+      for (var i = 0; i < world.fx.length; i++) {
+        NL.audio.fx(world.fx[i].type);
+        NL.hud.onFx(world.fx[i]);
+      }
       world.fx.length = 0;
 
       // Passing your own best mid-run is the hook that makes "one more go" work,
@@ -3227,8 +3331,10 @@
       if (!world) return;
       NL.audio.update(world, shell.state === 'playing');
       NL.render.frame(world, simTime);
+      var hudDt = Math.max(0, simTime - lastHudT);   // 0 while paused, so transients freeze too
+      lastHudT = simTime;
       var best = (shell.leaderboard.all()[0] || {}).score || 0;
-      NL.hud.draw(ctx, world, NL.render.view, simTime, best);
+      NL.hud.draw(ctx, world, NL.render.view, simTime, hudDt, best);
       if (NL.debug.enabled) NL.debug.draw(ctx, world, NL.render.view);
     }
   };
