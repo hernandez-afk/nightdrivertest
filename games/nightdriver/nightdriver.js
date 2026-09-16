@@ -3309,8 +3309,10 @@
     instructions: 'HOLD DRIFT TO THROW A ROPE AT THE NEXT LIT POST AND SLIDE<br>' +
       'TOWARD IT. LET GO BEFORE YOU RUN OUT OF ROAD.<br>' +
       'SURVIVE AS LONG AS YOU CAN — EVERY SECOND ON THE ROAD IS YOUR SCORE.',
+    accent: '--purple',
     accent2: '--blue',
     accent3: '--atari-red',
+    titleFont: '--font-namco',
     livesStart: 1,
     controlsDefaultSide: 'right',
     buttons: [
