@@ -1,0 +1,518 @@
+/*
+  Atari Shared Design System — shell.css
+  =======================================
+  Structural layout every game shares: the CRT viewport, the parallax
+  Vectrex grid, the persistent HUD corners, and the four flow screens
+  (home / gameplay HUD / game-over / leaderboard). A game only ever
+  fills in #game-canvas and the control-button labels/positions —
+  it never rebuilds this chrome.
+*/
+
+#app {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg-deep);
+}
+
+/* ---------------------------------------------------------------- */
+/* CRT viewport — locked to landscape, identical on mobile & desktop */
+/* No persistent header: the title/logo only appear inside the pause */
+/* menu (see .pause-marquee below), never over the title or gameplay */
+/* screen itself.                                                    */
+/* ---------------------------------------------------------------- */
+.crt-screen {
+  position: relative;
+  width: min(100vw, 177.78vh);
+  height: min(100vh, 56.25vw);
+  max-width: 1280px;
+  background: var(--bg);
+  overflow: hidden;
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 1px var(--grey-90), 0 20px 60px rgba(0,0,0,.6);
+}
+
+/* Pause menu content — the title/logo treatment that used to live in a
+   persistent header now only shows up here, inside the pause overlay. */
+.pause-marquee {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: clamp(10px, 2vh, 16px) clamp(14px, 3vw, 24px);
+  background: linear-gradient(180deg, var(--grey-90) 0%, var(--bg) 100%);
+  border: var(--line-width) solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 0 5px var(--accent), 0 0 18px rgba(var(--accent-rgb),.4), inset 0 0 14px rgba(var(--accent-rgb),.12);
+}
+
+.pause-title {
+  font-family: var(--font-atari);
+  font-weight: 700;
+  color: var(--accent);
+  text-shadow: 0 0 4px var(--accent), 0 0 14px rgba(var(--accent-rgb),.6), 0 0 32px rgba(var(--accent-rgb),.32);
+  font-size: clamp(18px, 4vw, 30px);
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
+
+.pause-logo {
+  flex: none;
+  width: clamp(42px, 7.5vw, 62px);
+  color: var(--white);
+  filter: drop-shadow(0 0 4px rgba(255,255,255,.55)) drop-shadow(0 0 12px rgba(255,255,255,.28));
+}
+.pause-logo svg { display: block; width: 100%; height: auto; }
+.pause-logo .cls-1 { fill: currentColor; }
+
+.pause-controls { display: flex; gap: 10px; }
+
+/* Vectrex-style vignetted parallax grid, sits behind everything */
+.grid-bg {
+  position: absolute;
+  inset: -20%;
+  background-image:
+    linear-gradient(hsla(var(--bg-tint), 60%, 55%, .16) 1px, transparent 1px),
+    linear-gradient(90deg, hsla(var(--bg-tint), 60%, 55%, .16) 1px, transparent 1px);
+  background-size: 40px 40px;
+  transform: perspective(600px) rotateX(35deg) translate3d(var(--grid-x, 0px), var(--grid-y, 0px), 0);
+  transform-origin: center 30%;
+  pointer-events: none;
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,.75) 100%);
+  z-index: 5;
+}
+
+.scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0,0,0,.18) 0px,
+    rgba(0,0,0,.18) 1px,
+    transparent 2px,
+    transparent 3px
+  );
+  mix-blend-mode: multiply;
+  animation: flicker 6s infinite steps(60);
+}
+
+@keyframes flicker {
+  0%, 96%, 100% { opacity: 1; }
+  97% { opacity: .88; }
+  98% { opacity: 1; }
+}
+
+#game-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ---------------------------------------------------------------- */
+/* Persistent top-left HUD: mute always first, then home/pause during */
+/* gameplay or help on the home/game-over screens.                    */
+/* ---------------------------------------------------------------- */
+.hud-topleft {
+  position: absolute;
+  top: var(--hud-inset);
+  left: var(--hud-inset);
+  z-index: 40; /* above .screen (30) — mute/home/help stay live over every screen */
+  display: flex;
+  gap: 10px;
+}
+.hud-topleft[hidden] { display: none; }
+
+/* Pause sits on the opposite corner from mute/home/help. */
+.hud-topright {
+  position: absolute;
+  top: var(--hud-inset);
+  right: var(--hud-inset);
+  z-index: 40;
+  display: flex;
+  gap: 10px;
+}
+
+.icon-btn {
+  width: var(--icon-btn);
+  height: var(--icon-btn);
+  border-radius: 50%;
+  border: var(--line-width) solid var(--ink);
+  background: rgba(23,23,23,.55);
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(2px);
+  flex: none;
+}
+.icon-btn:active { transform: scale(.92); }
+.icon-btn[hidden] { display: none; }
+/* every icon is drawn the same way — currentColor stroke/fill, same
+   viewBox, same footprint — so mute/home/help read as one matching set */
+.icon-btn svg {
+  /* fixed size, not a %, so it can't resolve against its span's own
+     shrink-to-fit (auto) width and end up mis-sized/off-center */
+  width: clamp(16px, 3.1vw, 22px);
+  height: clamp(16px, 3.1vw, 22px);
+  display: block;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon-btn span { display: grid; place-items: center; }
+.icon-btn[data-muted="true"] .icon-unmuted,
+.icon-btn[data-muted="false"] .icon-muted { display: none; }
+
+/* ---------------------------------------------------------------- */
+/* Center HUD during gameplay: lives (left of center) + score        */
+/* ---------------------------------------------------------------- */
+.hud-center {
+  position: absolute;
+  top: var(--hud-inset);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: clamp(14px, 3vw, 28px);
+  font-size: clamp(11px, 2vw, 16px);
+  text-align: center;
+}
+.hud-lives { display: flex; gap: 6px; align-items: center; color: var(--accent); }
+.hud-lives .life-icon { width: 14px; height: 14px; }
+.hud-score { color: var(--ink); letter-spacing: .08em; font-variant-numeric: tabular-nums; }
+.hud-score .label { color: var(--ink-dim); font-size: .8em; display: block; }
+/* Optional per-game readout (e.g. Asteroids' dust/buff meter) — stays
+   empty and invisible for games that never call shell.setDust(). */
+.hud-dust {
+  font-family: var(--font-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--yellow);
+  text-shadow: 0 0 6px rgba(252,206,1,.5);
+  white-space: nowrap;
+}
+.hud-dust:empty { display: none; }
+.hud-dust .buff {
+  display: block;
+  font-size: .82em;
+  color: var(--pink);
+  text-shadow: 0 0 8px rgba(255,0,141,.6);
+}
+
+/* ---------------------------------------------------------------- */
+/* Control zones — side depends on the player's handedness choice.   */
+/* One zone gets the game buttons, the opposite zone gets accessory  */
+/* (pause/etc.) buttons, mirroring a real cabinet's split layout.    */
+/* ---------------------------------------------------------------- */
+.controls-zone {
+  position: absolute;
+  bottom: var(--hud-inset);
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.controls-zone.side-left { left: var(--hud-inset); }
+.controls-zone.side-right { right: var(--hud-inset); }
+
+/* Opt-in: once a zone holds more than a couple of individual buttons, let
+   it wrap into a proper 2-column cluster (new rows stack upward, since
+   the zone is bottom-anchored) instead of a single row running off the
+   edge. Existing games keep the plain single-row behavior above unless
+   they explicitly add this class — it's for a zone the game expects to
+   hold a variable number of buttons (e.g. a template/customizer tool). */
+.controls-zone.multi-row {
+  flex-wrap: wrap-reverse;
+  align-content: flex-end;
+  max-width: calc(var(--safe-btn) * 2 + 12px);
+}
+
+/* Directional pairs: left/right sit side by side, up/down stack — the
+   pair renders as one flex item so it stays a matched unit in the zone. */
+.btn-pair { display: flex; gap: 10px; flex: none; }
+.btn-pair.dir-row { flex-direction: row; }
+.btn-pair.dir-column { flex-direction: column; }
+
+/* Analog joystick — an alternate primary control (config.joystick),
+   replacing directional buttons for a game like Asteroids. Same
+   translucent-over-the-field treatment as .btn-control, same progressive
+   --accent glow as the rest of the chrome. */
+.joystick-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; }
+.joystick-base {
+  width: clamp(84px, 16vw, 116px);
+  height: clamp(84px, 16vw, 116px);
+  border-radius: 50%;
+  background: rgba(23,23,23,.55);
+  box-shadow: 0 0 16px rgba(var(--accent-rgb),.4), inset 0 0 16px rgba(var(--accent-rgb),.18);
+  position: relative;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: box-shadow .6s ease;
+}
+.joystick-ring {
+  position: absolute;
+  inset: -6%;
+  width: 112%;
+  height: 112%;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 0 3px var(--accent)) drop-shadow(0 0 8px rgba(var(--accent-rgb),.55));
+  transition: filter .6s ease;
+}
+.joystick-knob {
+  width: 42%;
+  height: 42%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%,
+    color-mix(in srgb, var(--accent) 55%, white) 0%,
+    var(--accent) 55%,
+    color-mix(in srgb, var(--accent) 45%, black) 100%);
+  box-shadow: 0 0 8px var(--accent), 0 0 22px rgba(var(--accent-rgb),.6), 0 3px 8px rgba(0,0,0,.5);
+  pointer-events: none;
+  will-change: transform;
+  transition: background .6s ease, box-shadow .6s ease;
+}
+.joystick-label {
+  font-family: var(--font-body);
+  font-size: clamp(8px, 1.3vh, 11px);
+  letter-spacing: .05em;
+  color: var(--accent);
+  text-shadow: 0 0 6px rgba(var(--accent-rgb),.5);
+  white-space: nowrap;
+  transition: color .6s ease;
+}
+
+/* "TOP" sits right in the ring's gap, like the dial marking on a real
+   joystick housing. */
+.joystick-top-label {
+  position: absolute;
+  top: 1%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: clamp(6.5px, 1.2vh, 8.5px);
+  letter-spacing: .04em;
+  color: var(--accent);
+  text-shadow: 0 0 4px rgba(var(--accent-rgb),.5);
+  white-space: nowrap;
+  transition: color .6s ease;
+}
+
+.btn-control {
+  width: var(--safe-btn);
+  height: var(--safe-btn);
+  flex: none;
+  border-radius: 50%;
+  border: var(--line-width) solid var(--accent);
+  background: rgba(23,23,23,.55);
+  color: var(--accent);
+  text-shadow: var(--line-glow);
+  box-shadow: inset 0 0 12px rgba(0,0,0,.4);
+  touch-action: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.btn-control .btn-label {
+  font-family: var(--font-vector);
+  letter-spacing: .02em;
+  line-height: 1.05;
+  text-align: center;
+  /* inscribed square of the circle, so text never crosses the ring */
+  max-width: 68%;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+.btn-control.is-active,
+.btn-control:active {
+  background: var(--accent);
+  color: var(--black);
+  text-shadow: none;
+}
+.btn-control.accent-2 { border-color: var(--accent-2); color: var(--accent-2); }
+.btn-control.accent-2.is-active { background: var(--accent-2); color: var(--black); }
+
+/* ---------------------------------------------------------------- */
+/* Full-bleed overlay screens: boot / home / game-over / leaderboard */
+/* ---------------------------------------------------------------- */
+.screen {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(10px, 2vh, 22px);
+  background: rgba(12,12,12,.94);
+  text-align: center;
+  padding: var(--hud-inset);
+  transition: opacity .35s ease;
+}
+.screen[hidden] { display: none; }
+.screen.is-fading { opacity: 0; }
+
+.screen-title {
+  font-family: var(--font-title, var(--font-vector));
+  text-transform: var(--font-title-transform, none);
+  color: var(--accent);
+  text-shadow: var(--line-glow);
+  font-size: clamp(20px, 5vw, 44px);
+  letter-spacing: .08em;
+  margin: 0;
+}
+
+/* The default "vector" title choice renders real hand-drawn stroke
+   glyphs (see vectorTitleSvg in game-shell.js) instead of a web font —
+   sized off the same font-size clamp above via 1em so it matches every
+   other title choice's responsive scale. text-shadow doesn't reach SVG
+   path strokes, so the glow is redone here as a drop-shadow filter. */
+.vector-glyph-title {
+  display: block;
+  height: 1em;
+  width: auto;
+  margin: 0 auto;
+  overflow: visible;
+  filter: drop-shadow(0 0 4px currentColor) drop-shadow(0 0 10px currentColor);
+}
+
+.screen-sub {
+  font-size: clamp(9px, 1.8vw, 13px);
+  color: var(--ink-dim);
+  line-height: 1.7;
+}
+
+.blink { animation: blink 1.1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.btn-pixel {
+  font-family: var(--font-pixel);
+  font-size: clamp(9px, 1.6vw, 13px);
+  padding: 12px 18px;
+  background: transparent;
+  border: var(--line-width) solid var(--ink);
+  color: var(--ink);
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+.btn-pixel.primary {
+  border-color: var(--accent);
+  color: var(--accent);
+  text-shadow: var(--line-glow);
+}
+.btn-pixel:active { transform: scale(.96); }
+
+.side-toggle {
+  display: flex;
+  gap: 10px;
+  font-size: clamp(8px, 1.5vw, 11px);
+}
+.side-toggle button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--black);
+}
+
+/* Boot logo */
+.boot-logo-mark {
+  width: clamp(120px, 26vw, 220px);
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 0 10px var(--atari-red)) drop-shadow(0 0 28px rgba(224,30,43,.55));
+}
+
+/* Leaderboard */
+.leaderboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(9px, 1.8vw, 13px);
+  width: min(90%, 360px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.leaderboard-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 10px;
+  color: var(--ink-dim);
+}
+.leaderboard-list li.is-you {
+  color: var(--accent);
+  text-shadow: var(--line-glow);
+}
+.leaderboard-list li .rank { width: 2ch; text-align: left; color: inherit; opacity: .6; }
+
+/* Wraps injected leaderboard/initials content so it inherits .screen's
+   centering — a plain block child would otherwise stretch to the widest
+   line and leave the buttons/rows hugging its left edge instead. */
+.screen-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(10px, 2vh, 22px);
+}
+
+.initials-entry {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.initial-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.initial-char {
+  font-family: var(--font-vector);
+  font-size: clamp(20px, 5vw, 34px);
+  color: var(--accent);
+  text-shadow: var(--line-glow);
+  width: 1.2em;
+}
+
+/* Rotate-device prompt (mobile portrait) */
+.rotate-prompt {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--bg-deep);
+  color: var(--ink);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: var(--font-pixel);
+  font-size: clamp(10px, 3vw, 14px);
+  padding: 24px;
+}
+@media (max-aspect-ratio: 1/1) {
+  .rotate-prompt.is-armed { display: flex; }
+}
+
+@media (max-width: 480px) {
+  :root { --hud-inset: 8px; }
+}
