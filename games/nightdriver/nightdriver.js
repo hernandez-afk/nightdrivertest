@@ -1066,10 +1066,10 @@
       // obstacles are ~60-65 % of picks; corners come in chained pairs more often
       // than alone, because a road that turns tends to turn back
       entries = [
-        ['obs_C', 40], ['obs_LC', 20], ['obs_CR', 20],
+        ['obs_C', 25], ['obs_LC', 22], ['obs_CR', 22],
         // breathers: a hazard on one side that a CENTRED car passes untouched.
         // No post — the demand is to be where you should already be.
-        ['obs_L', 5], ['obs_R', 5],
+        ['obs_L', 12], ['obs_R', 12],
         ['curve_slight', chained ? 20 : 14],
         ['curve_medium', chained ? 16 : 12],
         ['curve_sharp', t > 35 ? (chained ? 12 : 9) * (t > 180 ? 1.35 : 1) : 0],
