@@ -454,41 +454,48 @@
 })();
 
 /* ===== 03-input.js ===== */
-/* NIGHT LINE — one button. Driven by the shared shell's InputManager (the
- * "drift" control button: keyboard + on-screen circle both feed shell.input),
- * rather than owning its own DOM listeners. sync() is polled once per shell
- * onUpdate() and turns shell's isDown/wasPressed into the same held/
- * justPressed/justReleased shape the sim (07) and the fixed-step loop (12)
- * already expect, so neither of those had to change. */
+/* NIGHT LINE — two buttons: LEFT throws (and holds) the rope at the left
+ * post, RIGHT does the same for the right post — so which of the two lit
+ * poles you rope is a real, expressed choice instead of an auto-attach to
+ * whichever is nearest. Driven by the shared shell's InputManager (keyboard
+ * arrows + the two on-screen buttons both feed shell.input) rather than
+ * owning its own DOM listeners. sync() is polled once per shell onUpdate()
+ * and turns shell's isDown into the held/justPressed shape the sim (07) and
+ * the fixed-step loop (12) expect, one copy per side. */
 (function () {
   var NL = (globalThis.NL = globalThis.NL || {});
 
   NL.input = {
-    held: false,
-    justPressed: false,
-    justReleased: false,
-    _queuedPress: false,
-    _queuedRelease: false
+    leftHeld: false, leftJustPressed: false,
+    rightHeld: false, rightJustPressed: false,
+    _qLeftPress: false, _qRightPress: false
   };
 
   NL.input.beginFrame = function () {
     var i = NL.input;
-    i.justPressed = i._queuedPress;
-    i.justReleased = i._queuedRelease;
-    i._queuedPress = false;
-    i._queuedRelease = false;
+    i.leftJustPressed = i._qLeftPress;
+    i.rightJustPressed = i._qRightPress;
+    i._qLeftPress = false;
+    i._qRightPress = false;
   };
 
   NL.input.sync = function (shell) {
     var i = NL.input;
-    var held = shell.input.isDown('drift');
-    if (held && !i.held) {
-      i.held = true;
-      i._queuedPress = true;
+    var lHeld = shell.input.isDown('left');
+    if (lHeld && !i.leftHeld) {
+      i.leftHeld = true;
+      i._qLeftPress = true;
       if (NL.audio && NL.audio.unlock) NL.audio.unlock();
-    } else if (!held && i.held) {
-      i.held = false;
-      i._queuedRelease = true;
+    } else if (!lHeld && i.leftHeld) {
+      i.leftHeld = false;
+    }
+    var rHeld = shell.input.isDown('right');
+    if (rHeld && !i.rightHeld) {
+      i.rightHeld = true;
+      i._qRightPress = true;
+      if (NL.audio && NL.audio.unlock) NL.audio.unlock();
+    } else if (!rHeld && i.rightHeld) {
+      i.rightHeld = false;
     }
   };
 })();
@@ -639,12 +646,11 @@
       used: false,
       collected: false,
       state: 'dormant',                // dormant | active | attached | passed
-      // A marker post is lit and drawn exactly like a real anchor, but the
-      // rope can never attach to it (see findAnchor, 07-sim) — it exists
-      // purely so the hazard's own side has a lit post too, standing
-      // opposite the real anchor. Seeing both posts together at once is
-      // what lets the gap between them read as "here is the obstacle",
-      // not just "swing this way".
+      // Both the safe-side and hazard-side posts of an event are ropeable —
+      // LEFT/RIGHT name which one by side (see findAnchorSide, 07-sim), not
+      // by nearest, so which post you rope is an expressed choice. This
+      // flag is kept as an escape hatch for a future decorative-only post;
+      // nothing currently sets it false.
       attachable: opts.attachable === undefined ? true : opts.attachable
     };
   };
@@ -1109,6 +1115,20 @@
     if (world.sinceB >= cfg.beamEveryNEvents && !ev.breather) { pickup = 'beam'; world.sinceB = 0; }
     else if (world.sinceP >= cfg.powerEveryNEvents && !ev.breather) { pickup = 'power'; world.sinceP = 0; }
 
+    /* Two ropeable anchors, one per side (GDD 7.3's original ask).
+     *
+     * That only works because there are now two buttons, LEFT and RIGHT —
+     * each ropes the post on its own side by name, so picking between a
+     * safe anchor and a useless (or actively bad) one is a choice the player
+     * can actually express, not a tie-break the nearest-post auto-attach
+     * used to resolve on their behalf.
+     *
+     * The safe side (ev.side) carries the event's pickup, if any; the other
+     * side is a real anchor too — pull it and you drift toward the hazard
+     * itself. Breathers skip the safe side entirely (there's nothing to
+     * rope to reach it, you're already there) but still light the hazard's
+     * own side, so roping the wrong pole on a breather is a real, punishing
+     * option rather than an impossibility. */
     var anchors = [];
     if (!ev.breather) {
       anchors.push(NL.makeAnchor({
@@ -1116,26 +1136,9 @@
         openHazardZ: ev.openHazardZ, closeHazardZ: ev.closeHazardZ, hazardZ: ev.z
       }));
     }
-
-    /* Only ONE anchor per event is ever ropeable, always.
-     *
-     * GDD 7.3 asks for a strategic choice between a safe anchor and a useful one
-     * by putting two on opposite sides. That cannot work here: the only input is a
-     * single button and the rope auto-attaches to the nearest ropeable anchor, so
-     * with two of them equidistant the tie-break picks — not the player. A choice
-     * you cannot express is not a choice, it just makes the road ambiguous.
-     *
-     * The pickup therefore rides on the event's own ropeable anchor, and the real
-     * decision stays the one the button can actually express: when to throw, how
-     * long to hold, when to let go.
-     *
-     * A second, non-ropeable marker post stands on the hazard's own side for
-     * every obstacle event (breathers included) — lit exactly the same way, so
-     * the two posts appear together and bracket where the safe gap (and so the
-     * obstacle) actually is, well before the obstacle itself is lit. */
     if (ev.kind === 'obstacle') {
       anchors.push(NL.makeAnchor({
-        z: anchorZ, side: -ev.side, eventId: id, attachable: false,
+        z: anchorZ, side: -ev.side, eventId: id, pull: ev.pull || 0,
         openHazardZ: ev.openHazardZ, closeHazardZ: ev.closeHazardZ, hazardZ: ev.z
       }));
     }
@@ -1269,6 +1272,7 @@
       time: 0,
       dist: 0,
       speed: cfg.speedStart,
+      topSpeed: cfg.speedStart,
 
       car: { x: 0, vx: 0, mode: 'idle', anchor: null, missTimer: 0, holdTime: 0, lean: 0, slip: 0 },
 
@@ -1298,7 +1302,7 @@
       envSets: ['desert', 'city'],
       envPeriod: 900,
 
-      bot: { holdUntil: -1 },
+      bot: { holdUntil: -1, holdSide: 0 },
       stats: { events: 0, rejections: 0, fallbacks: 0, minWindow: 99, minGapSeconds: 99 },
       nearMiss: 0,    // decays after a close pass; drives the spark and the tick
       nearMissSide: 1,
@@ -1334,19 +1338,17 @@
     return hz <= a.openHazardZ && hz >= a.closeHazardZ;
   }
 
-  function findAnchor(world) {
+  // The nearest open anchor on a GIVEN side — side is now named by which
+  // button was pressed, so there is no tie-break left to resolve: the input
+  // itself says which post the player means.
+  function findAnchorSide(world, side) {
     var best = null, bestZ = Infinity;
-    var carOff = world.car.x - NL.road.centreAt(world, world.dist);
     for (var i = 0; i < world.anchors.length; i++) {
       var a = world.anchors[i];
-      if (!a.attachable) continue;      // a marker post — lit for locating the hazard, never ropeable
+      if (a.side !== side) continue;
       if (!anchorWindowOpen(world, a)) continue;
       var rz = a.z - world.dist;
-      if (rz < bestZ - 0.5) { best = a; bestZ = rz; }
-      else if (Math.abs(rz - bestZ) <= 0.5 && best) {
-        // tie-break toward the side the car is already on
-        if (NL.sign(a.side) === NL.sign(carOff || a.side)) { best = a; bestZ = rz; }
-      }
+      if (rz < bestZ) { best = a; bestZ = rz; }
     }
     return best;
   }
@@ -1430,6 +1432,7 @@
 
     world.time += dt;
     world.speed = NL.speedAt(world.time);
+    if (world.speed > world.topSpeed) world.topSpeed = world.speed;
     world.dist += world.speed * dt;
     world.score = world.time;
     world.shake = Math.max(0, world.shake - dt * 3);
@@ -1461,11 +1464,10 @@
     var car = world.car;
     if (car.missTimer > 0) car.missTimer = Math.max(0, car.missTimer - dt);
 
-    if (input.justPressed && car.mode !== 'attached') {
-      if (car.missTimer > 0) {
-        // cooldown: nothing happens, and a held button will NOT auto-throw later
-      } else {
-        var a = findAnchor(world);
+    if (car.mode !== 'attached') {
+      var pressedSide = input.leftJustPressed ? -1 : (input.rightJustPressed ? 1 : 0);
+      if (pressedSide && car.missTimer <= 0) {
+        var a = findAnchorSide(world, pressedSide);
         if (a) {
           car.mode = 'attached';
           car.anchor = a;
@@ -1482,11 +1484,17 @@
       }
     }
 
-    if (car.mode === 'attached' && !input.held) {
-      if (car.anchor) car.anchor.state = 'passed';
-      car.anchor = null;
-      car.mode = 'returning';
-      emit(world, 'rope-detach');
+    if (car.mode === 'attached') {
+      // whichever side you roped, releasing THAT button lets go — the other
+      // button does nothing until you do, same as it would if there were
+      // still only one rope in flight
+      var stillHeld = car.anchor.side < 0 ? input.leftHeld : input.rightHeld;
+      if (!stillHeld) {
+        car.anchor.state = 'passed';
+        car.anchor = null;
+        car.mode = 'returning';
+        emit(world, 'rope-detach');
+      }
     }
 
     var centre = NL.road.centreAt(world, world.dist);
@@ -1591,8 +1599,12 @@
     var jitter = opts.jitter || 0;
     var bot = world.bot;
 
-    if (bot.holdUntil > world.time) return { held: true, justPressed: false, justReleased: false };
-    var justPressed = false, held = false;
+    if (bot.holdUntil > world.time) {
+      return bot.holdSide < 0
+        ? { leftHeld: true, rightHeld: false, leftJustPressed: false, rightJustPressed: false }
+        : { leftHeld: false, rightHeld: true, leftJustPressed: false, rightJustPressed: false };
+    }
+    var pressedSide = 0;
 
     for (var i = 0; i < world.events.length; i++) {
       var ev = world.events[i];
@@ -1617,12 +1629,15 @@
         ev.botDone = true;
         var jit = jitter ? (world.rng() * 2 - 1) * jitter : 0;
         bot.holdUntil = world.time + Math.max(0.05, ev.idealHold + jit);
-        justPressed = true;
-        held = true;
+        bot.holdSide = ev.idealSide;
+        pressedSide = ev.idealSide;
         break;
       }
     }
-    return { held: held, justPressed: justPressed, justReleased: false };
+    return {
+      leftHeld: pressedSide < 0, rightHeld: pressedSide > 0,
+      leftJustPressed: pressedSide < 0, rightJustPressed: pressedSide > 0
+    };
   };
 })();
 
@@ -2989,6 +3004,13 @@
     ctx.font = (weight || 500) + ' ' + size + 'px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
   }
 
+  function formatTime(seconds) {
+    var s = Math.floor(seconds);
+    var m = Math.floor(s / 60);
+    var r = s % 60;
+    return m + ':' + (r < 10 ? '0' : '') + r;
+  }
+
   function meter(ctx, x, y, w, h, frac, colour, warn) {
     ctx.fillStyle = 'rgba(255,255,255,0.07)';
     ctx.fillRect(x, y, w, h);
@@ -3028,11 +3050,13 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
 
-      // speed: the one number the death screen already gave you, now live —
-      // and the thing that makes the automatic ramp-up (GDD 6) actually visible
+      // time + top speed — score is already the shell's own readout, these
+      // are the other two numbers worth seeing live instead of only at death
       font(ctx, view.tall ? 13 : 15, 600);
+      ctx.fillStyle = T.hudDim;
+      ctx.fillText(formatTime(world.time), view.W / 2, my - 74);
       ctx.fillStyle = T.hudMid;
-      ctx.fillText(Math.round(world.speed * 3.6) + ' KM/H', view.W / 2, my - 54);
+      ctx.fillText('TOP ' + Math.round(world.topSpeed * 3.6) + ' KM/H', view.W / 2, my - 54);
 
       // the chain: consecutive clean clears
       if (world.streak >= 3 || world.streakBroke > 0.01) {
@@ -3115,7 +3139,7 @@
           ctx.globalAlpha = ia;
           font(ctx, view.tall ? 12 : 14, 600);
           ctx.fillStyle = T.hudBright;
-          ctx.fillText('HOLD DRIFT TO ROPE THE LIT POST AHEAD', view.W / 2, view.H * 0.30);
+          ctx.fillText('LEFT ROPES LEFT, RIGHT ROPES RIGHT — PICK THE SAFE POST', view.W / 2, view.H * 0.30);
           ctx.fillStyle = T.hudDim;
           ctx.fillText('RELEASE BEFORE YOU RUN OUT OF ROAD', view.W / 2, view.H * 0.30 + 20);
           ctx.restore();
@@ -3313,9 +3337,12 @@
 
       acc += Math.min(dt, 0.25);
       while (acc >= DT) {
-        var stepInput = { held: NL.input.held, justPressed: NL.input.justPressed, justReleased: NL.input.justReleased };
-        NL.input.justPressed = false;   // one press per frame, consumed by the first sub-step
-        NL.input.justReleased = false;
+        var stepInput = {
+          leftHeld: NL.input.leftHeld, rightHeld: NL.input.rightHeld,
+          leftJustPressed: NL.input.leftJustPressed, rightJustPressed: NL.input.rightJustPressed
+        };
+        NL.input.leftJustPressed = false;   // one press per frame, consumed by the first sub-step
+        NL.input.rightJustPressed = false;
         NL.stepWorld(world, DT, stepInput);
         acc -= DT;
         if (!world.alive) break;
@@ -3416,9 +3443,9 @@
 /* ===== 14-main.js ===== */
 /* NIGHT LINE — wired into the shared Atari shell (shared/game-shell.js),
  * the same way Asteroids and Pong are: the shell owns the boot logo, the
- * home screen, the persistent HUD chrome (mute/home/help/pause), the single
- * "DRIFT" control button, the game-over screen and the leaderboard. This
- * file only hooks NL.game's lifecycle to those callbacks.
+ * home screen, the persistent HUD chrome (mute/home/help/pause), the paired
+ * LEFT/RIGHT control buttons, the game-over screen and the leaderboard.
+ * This file only hooks NL.game's lifecycle to those callbacks.
  *
  * NL.audio keeps its own richer WebAudio engine (continuous engine tone,
  * tyre rumble) rather than the shell's simple blip presets, so it never
@@ -3431,17 +3458,18 @@
   AtariShell.init({
     gameId: 'nightdriver',
     title: 'NIGHT LINE',
-    instructions: 'HOLD DRIFT TO THROW A ROPE AT THE NEXT LIT POST AND SLIDE<br>' +
-      'TOWARD IT. LET GO BEFORE YOU RUN OUT OF ROAD.<br>' +
-      'SURVIVE AS LONG AS YOU CAN — EVERY SECOND ON THE ROAD IS YOUR SCORE.',
-    accent: '--purple',
-    accent2: '--blue',
+    instructions: 'LEFT ROPES THE LEFT POST, RIGHT ROPES THE RIGHT POST — HOLD IT<br>' +
+      'TO SLIDE TOWARD THAT SIDE, LET GO BEFORE YOU RUN OUT OF ROAD.<br>' +
+      'ONLY ONE POST PER PAIR IS SAFE — READ THE ROAD AND PICK RIGHT.',
+    accent: '--yellow',
+    accent2: '--yellow',
     accent3: '--atari-red',
     titleFont: '--font-namco',
     livesStart: 1,
     controlsDefaultSide: 'right',
     buttons: [
-      { id: 'drift', label: 'DRIFT', key: ' ', hold: true }
+      { id: 'left', label: 'LEFT', key: 'ArrowLeft', hold: true, pair: 'drift', dir: 'left' },
+      { id: 'right', label: 'RIGHT', key: 'ArrowRight', hold: true, pair: 'drift', dir: 'right' }
     ],
     onInit: function (shell) { NL.game.init(shell); },
     onStart: function (shell) { NL.game.start(); },
