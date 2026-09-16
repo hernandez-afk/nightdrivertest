@@ -638,7 +638,14 @@
       hazardZ: opts.hazardZ,           // world z the window is measured against
       used: false,
       collected: false,
-      state: 'dormant'                 // dormant | active | attached | passed
+      state: 'dormant',                // dormant | active | attached | passed
+      // A marker post is lit and drawn exactly like a real anchor, but the
+      // rope can never attach to it (see findAnchor, 07-sim) — it exists
+      // purely so the hazard's own side has a lit post too, standing
+      // opposite the real anchor. Seeing both posts together at once is
+      // what lets the gap between them read as "here is the obstacle",
+      // not just "swing this way".
+      attachable: opts.attachable === undefined ? true : opts.attachable
     };
   };
 
@@ -1110,17 +1117,28 @@
       }));
     }
 
-    /* Exactly ONE anchor per event, always.
+    /* Only ONE anchor per event is ever ropeable, always.
      *
      * GDD 7.3 asks for a strategic choice between a safe anchor and a useful one
      * by putting two on opposite sides. That cannot work here: the only input is a
-     * single button and the rope auto-attaches to the nearest anchor, so with two
-     * of them equidistant the tie-break picks — not the player. A choice you
-     * cannot express is not a choice, it just makes the road ambiguous.
+     * single button and the rope auto-attaches to the nearest ropeable anchor, so
+     * with two of them equidistant the tie-break picks — not the player. A choice
+     * you cannot express is not a choice, it just makes the road ambiguous.
      *
-     * The pickup therefore rides on the event's own anchor, and the real decision
-     * stays the one the button can actually express: when to throw, how long to
-     * hold, when to let go. */
+     * The pickup therefore rides on the event's own ropeable anchor, and the real
+     * decision stays the one the button can actually express: when to throw, how
+     * long to hold, when to let go.
+     *
+     * A second, non-ropeable marker post stands on the hazard's own side for
+     * every obstacle event (breathers included) — lit exactly the same way, so
+     * the two posts appear together and bracket where the safe gap (and so the
+     * obstacle) actually is, well before the obstacle itself is lit. */
+    if (ev.kind === 'obstacle') {
+      anchors.push(NL.makeAnchor({
+        z: anchorZ, side: -ev.side, eventId: id, attachable: false,
+        openHazardZ: ev.openHazardZ, closeHazardZ: ev.closeHazardZ, hazardZ: ev.z
+      }));
+    }
     for (var i = 0; i < anchors.length; i++) world.anchors.push(anchors[i]);
 
     if (ev.kind === 'obstacle') {
@@ -1321,6 +1339,7 @@
     var carOff = world.car.x - NL.road.centreAt(world, world.dist);
     for (var i = 0; i < world.anchors.length; i++) {
       var a = world.anchors[i];
+      if (!a.attachable) continue;      // a marker post — lit for locating the hazard, never ropeable
       if (!anchorWindowOpen(world, a)) continue;
       var rz = a.z - world.dist;
       if (rz < bestZ - 0.5) { best = a; bestZ = rz; }
