@@ -669,11 +669,13 @@
   var NL = (globalThis.NL = globalThis.NL || {});
   var cfg = NL.cfg;
 
-  // What a hazard actually varies by: how many lanes it blocks, and how long it
-  // takes to pass. Everything else is presentation.
+  // What a hazard actually varies by: how long it takes to pass. Everything
+  // else is presentation. Every obstacle now blocks exactly one lane (see
+  // pickCandidate) — works/wreck used to be reserved for the two-lane kinds,
+  // folded in here so a lane closure or a wreck can still show up single-lane.
   var SINGLE_KINDS = [['vehicle', 20], ['debris', 13], ['pothole', 11], ['ped', 8],
-                      ['truck', 12], ['crate', 10], ['sign', 8], ['cones', 8]];
-  var WIDE_KINDS   = [['works', 24], ['wreck', 20], ['vehicle', 13], ['cones', 14], ['ped', 8]];
+                      ['truck', 12], ['crate', 10], ['sign', 8], ['cones', 8],
+                      ['works', 12], ['wreck', 10]];
 
   var LANES = {
     L: [cfg.laneCentres[0] - cfg.laneHalfWidth, cfg.laneCentres[0] + cfg.laneHalfWidth],
@@ -851,7 +853,7 @@
         // metres, not seconds: a debris field is a debris field at any speed,
         // and a speed-scaled gap instantly overran the pass budget
         var gapM = 5 + rng() * 11;
-        var ekind = rng.weighted(layout.lanes.length > 1 ? WIDE_KINDS : SINGLE_KINDS);
+        var ekind = rng.weighted(SINGLE_KINDS);
         var elen = cfg.obstacleLen[ekind] * (0.85 + rng() * 0.4);
         var end = lastEnd + gapM + elen;
         if (passOf(end) > passBudget) break;
@@ -1042,12 +1044,20 @@
       else entries = [['obs_C', 46], ['obs_L', 13], ['obs_R', 13], ['curve_slight', 28]];
     } else {
       // obstacles are ~60-65 % of picks; corners come in chained pairs more often
-      // than alone, because a road that turns tends to turn back
+      // than alone, because a road that turns tends to turn back.
+      //
+      // Every obstacle blocks exactly ONE of the three lanes, never two — a
+      // two-lane block leaves only one lane's width to escape into, which
+      // isn't enough room to recover if you rope the wrong post at the last
+      // second. One lane blocked always leaves two clear, so the wrong pick
+      // is still survivable with a late correction. (Weight that used to go
+      // to the two-lane kinds is folded into the single-lane ones, scaled up
+      // so the obstacle-vs-curve ratio is unchanged.)
       entries = [
-        ['obs_C', 25], ['obs_LC', 22], ['obs_CR', 22],
+        ['obs_C', 47],
         // breathers: a hazard on one side that a CENTRED car passes untouched.
         // No post — the demand is to be where you should already be.
-        ['obs_L', 12], ['obs_R', 12],
+        ['obs_L', 23], ['obs_R', 23],
         ['curve_slight', chained ? 20 : 14],
         ['curve_medium', chained ? 16 : 12],
         ['curve_sharp', t > 35 ? (chained ? 12 : 9) * (t > 180 ? 1.35 : 1) : 0],
@@ -1071,8 +1081,6 @@
       case 'obs_C':  return buildObstacle(world, z, vArr, rng, { lanes: ['C'], kind: rng.weighted(SINGLE_KINDS) });
       case 'obs_L':  return buildObstacle(world, z, vArr, rng, { lanes: ['L'], kind: rng.weighted(SINGLE_KINDS), innerShrink: cfg.sideInnerShrink });
       case 'obs_R':  return buildObstacle(world, z, vArr, rng, { lanes: ['R'], kind: rng.weighted(SINGLE_KINDS), innerShrink: cfg.sideInnerShrink });
-      case 'obs_LC': return buildObstacle(world, z, vArr, rng, { lanes: ['L', 'C'], kind: rng.weighted(WIDE_KINDS) });
-      case 'obs_CR': return buildObstacle(world, z, vArr, rng, { lanes: ['C', 'R'], kind: rng.weighted(WIDE_KINDS) });
       case 'curve_slight': return buildCurve(world, z, vArr, rng, 'slight');
       case 'curve_medium': return buildCurve(world, z, vArr, rng, 'medium');
       case 'curve_sharp':  return buildCurve(world, z, vArr, rng, 'sharp');
