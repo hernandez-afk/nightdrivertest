@@ -3205,6 +3205,10 @@
   }
 
   NL.hud = {
+    // Exported so 12-game.js can feed the same M:SS string to the shell's
+    // own top-centre readout (shell.setReadout) instead of formatting it twice.
+    formatTime: formatTime,
+
     // Clears transient HUD state between runs so a stale dodge-rating from
     // the previous attempt can't flash up at the start of a new one.
     reset: function () { dodge = null; },
@@ -3227,13 +3231,10 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
 
-      // time + top speed — score is already the shell's own readout, these
-      // are the other two numbers worth seeing live instead of only at death
-      font(ctx, view.tall ? 13 : 15, 600);
-      ctx.fillStyle = T.hudDim;
-      ctx.fillText(formatTime(world.time), view.W / 2, my - 74);
-      ctx.fillStyle = T.hudMid;
-      ctx.fillText('TOP ' + Math.round(world.topSpeed * 3.6) + ' KM/H', view.W / 2, my - 54);
+      // time + top speed used to be drawn here, but sitting right above the
+      // car they were exactly what the car itself covers — they now live in
+      // the shell's own top-centre HUD instead (see shell.setReadout in
+      // 12-game.js), next to score.
 
       // the chain: consecutive clean clears
       if (world.streak >= 3 || world.streakBroke > 0.01) {
@@ -3304,21 +3305,28 @@
         ctx.restore();
       }
 
-      // first-ever run only: a few seconds of plain reminder of the one control
+      // first-ever run only: three short beats, one idea at a time, in place
+      // of a single two-line dump — teaching the read (two posts), the move
+      // (hold the safe side) and the payoff (release in time) in sequence
+      // reads as a tutorial instead of a reminder.
       if (world._showIntro) {
-        var INTRO_HOLD = 5.4, INTRO_FADE = 0.8;
-        if (world.time > INTRO_HOLD + INTRO_FADE) world._showIntro = false;
+        var INTRO_BEATS = [
+          'EVERY HAZARD LIGHTS TWO POSTS, ONE EACH SIDE',
+          'HOLD LEFT OR RIGHT TO ROPE THE SAFE SIDE',
+          'RELEASE BEFORE THE ROAD RUNS OUT, THEN READ THE NEXT PAIR'
+        ];
+        var SEG = 2.6, FADE = 0.4;
+        var introDur = INTRO_BEATS.length * SEG;
+        if (world.time > introDur) world._showIntro = false;
         else {
-          var ia = world.time < INTRO_FADE ? world.time / INTRO_FADE
-                 : world.time > INTRO_HOLD ? 1 - (world.time - INTRO_HOLD) / INTRO_FADE
-                 : 1;
+          var seg = Math.min(INTRO_BEATS.length - 1, Math.floor(world.time / SEG));
+          var ts = world.time - seg * SEG;
+          var ia = ts < FADE ? ts / FADE : ts > SEG - FADE ? (SEG - ts) / FADE : 1;
           ctx.save();
           ctx.globalAlpha = ia;
           font(ctx, view.tall ? 12 : 14, 600);
           ctx.fillStyle = T.hudBright;
-          ctx.fillText('LEFT ROPES LEFT, RIGHT ROPES RIGHT — PICK THE SAFE POST', view.W / 2, view.H * 0.30);
-          ctx.fillStyle = T.hudDim;
-          ctx.fillText('RELEASE BEFORE YOU RUN OUT OF ROAD', view.W / 2, view.H * 0.30 + 20);
+          ctx.fillText(INTRO_BEATS[seg], view.W / 2, view.H * 0.30);
           ctx.restore();
         }
       }
@@ -3543,6 +3551,14 @@
       }
 
       shell.setScore(Math.floor(world.time));
+      // Time + top speed sat just above the car, which is exactly what the
+      // car itself covers up — shown in the shell's own top-centre HUD,
+      // next to score, instead.
+      shell.setReadout(
+        NL.hud.formatTime(world.time) +
+        '<span style="display:block;font-size:.8em;opacity:.7">TOP ' +
+        Math.round(world.topSpeed * 3.6) + ' KM/H</span>'
+      );
       if (NL.debug.enabled) NL.debug.tick(dt);
 
       // No lives pool: the one life the shell was given ends the run and — via
@@ -3635,14 +3651,17 @@
   AtariShell.init({
     gameId: 'nightdriver',
     title: 'NIGHT LINE',
-    instructions: 'LEFT ROPES THE LEFT POST, RIGHT ROPES THE RIGHT POST — HOLD IT<br>' +
-      'TO SLIDE TOWARD THAT SIDE, LET GO BEFORE YOU RUN OUT OF ROAD.<br>' +
-      'ONLY ONE POST PER PAIR IS SAFE — READ THE ROAD AND PICK RIGHT.',
+    instructions: '1. EVERY HAZARD LIGHTS TWO POSTS, ONE EITHER SIDE OF THE ROAD.<br>' +
+      '2. ONLY ONE SIDE IS SAFE — READ THE ROAD AND PICK IT.<br>' +
+      '3. HOLD LEFT OR RIGHT TO ROPE THAT POST AND DRIFT TOWARD IT.<br>' +
+      '4. RELEASE BEFORE YOU RUN OUT OF ROAD, THEN LINE UP THE NEXT PAIR.',
     accent: '--yellow',
     accent2: '--yellow',
     accent3: '--atari-red',
     titleFont: '--font-namco',
     livesStart: 1,
+    showLives: false,           // one life only — a "lives remaining" icon that always
+                                 // reads 1 and vanishes straight to game over isn't a readout
     controlsDefaultSide: 'right',
     buttons: [
       { id: 'left', label: 'LEFT', key: 'ArrowLeft', hold: true, pair: 'drift', dir: 'left' },

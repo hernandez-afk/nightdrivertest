@@ -925,8 +925,12 @@
     }
 
     // ---- Lives / score -------------------------------------------------
+    // config.showLives: false hides the icon row entirely — for a one-life
+    // game it would only ever show a single icon that vanishes straight to
+    // game over, which isn't a "lives remaining" readout worth having.
     setLives(n) {
       this.lives = n;
+      if (this.config.showLives === false) { this.dom.hudLives.innerHTML = ''; return; }
       this.dom.hudLives.innerHTML = Array.from({ length: Math.max(n, 0) })
         .map(() => `<svg class="life-icon" viewBox="0 0 10 10"><path d="M5 0 L6.2 3.6 L10 3.6 L7 5.9 L8.1 9.5 L5 7.3 L1.9 9.5 L3 5.9 L0 3.6 L3.8 3.6 Z" fill="currentColor"/></svg>`)
         .join('');
@@ -952,6 +956,13 @@
         html += `<span class="buff">${buffLabel}${secondsLeft != null ? ' ' + Math.ceil(secondsLeft) + 'S' : ''}</span>`;
       }
       this.dom.hudDust.innerHTML = html;
+    }
+
+    // Same slot as setDust, for a game whose per-game readout isn't a
+    // dust/buff meter (e.g. Night Line's time + top speed) — raw HTML, no
+    // imposed format. Call with no args, or '', to clear it.
+    setReadout(html) {
+      this.dom.hudDust.innerHTML = html || '';
     }
 
     // ---- State machine ---------------------------------------------
